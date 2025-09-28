@@ -91,7 +91,11 @@ fn main() {
                 continue;
             }
         };
-        text = text.replace("\0\0", " ").replace("\0", " ");
+        text = text
+            .replace("\0\0", " ")
+            .replace("\0\n", "\n")
+            .trim_end_matches(|ch| ch == '\0')
+            .replace("\0", " ");
 
         let Ok(()) = ctx.set_text(text.clone()) else {
             warn!("failed to set clipboard text");
