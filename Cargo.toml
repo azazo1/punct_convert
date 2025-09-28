@@ -1,0 +1,11 @@
+[package]
+name = "punct_convert"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clipboard-rs = "0.3.0"
+mac-notification-sys = "0.6.6"
+tempfile = "3.23.0"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.20"
