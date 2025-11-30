@@ -1,7 +1,9 @@
 use std::{io::Write, thread, time::Duration};
 
-use clipboard_rs::Clipboard;
+use clipboard_rs::{Clipboard, ContentFormat};
+use html5ever::{parse_document, serialize, tendril::TendrilSink};
 use mac_notification_sys::Notification;
+use markup5ever_rcdom::{Handle, NodeData, RcDom};
 use tempfile::NamedTempFile;
 use tracing::{info, warn};
 
@@ -41,9 +43,58 @@ fn main() {
         .init();
 
     let mut last_text: Option<String> = None;
+    let mut last_html: Option<String> = None;
     loop {
         thread::sleep(Duration::from_secs_f32(0.5));
         let ctx = clipboard_rs::ClipboardContext::new().unwrap();
+
+        if ctx.has(ContentFormat::Html) {
+            let Ok(html) = ctx.get_html() else {
+                continue;
+            };
+            if last_html
+                .as_ref()
+                .map(|h| h.as_str() == html.as_str())
+                .unwrap_or(false)
+            {
+                continue;
+            }
+
+            info!("get clipboard(html)");
+
+            let Some(converted_html) = convert_html_string(html.as_str()) else {
+                last_html = Some(html);
+                continue;
+            };
+            let Ok(()) = ctx.set_html(converted_html.clone()) else {
+                warn!("failed to set clipboard html");
+                continue;
+            };
+            last_html = Some(converted_html.clone());
+
+            let mut notification = Notification::new();
+            let mut icon_file = NamedTempFile::new();
+            match &mut icon_file {
+                Ok(icon_file) => {
+                    icon_file.write_all(ICON_BYTES).ok();
+                    let icon_path = icon_file.path().to_str().unwrap_or("");
+                    if !icon_path.is_empty() {
+                        notification.app_icon(icon_path);
+                    }
+                }
+                Err(e) => {
+                    warn!("failed to create temp icon file: {}", e);
+                }
+            }
+            notification
+                .title("成功转换标点符号")
+                .subtitle("中文符号已转换成英文符号，已保留格式")
+                .close_button("关闭")
+                .send()
+                .unwrap();
+            continue;
+        }
+
         let Ok(text) = ctx.get_text() else {
             continue;
         };
@@ -59,43 +110,10 @@ fn main() {
 
         last_text = Some(text.clone());
 
-        let Some(convert_rst) = text.chars().map(convert).reduce(|a, b| {
-            use Convert::*;
-            match (a, b) {
-                (Raw(mut a), Raw(b)) => {
-                    a.push_str(b.as_str());
-                    Raw(a)
-                }
-                (Converted(mut a), Raw(b)) => {
-                    a.push_str(b.as_str());
-                    Converted(a)
-                }
-                (Raw(mut a), Converted(b)) => {
-                    a.push_str(b.as_str());
-                    Converted(a)
-                }
-                (Converted(mut a), Converted(b)) => {
-                    a.push_str(b.as_str());
-                    Converted(a)
-                }
-            }
-        }) else {
-            warn!("clipboard convert result empty");
+        let Some(text) = convert_str(text.as_str()) else {
+            info!("no chinese punct");
             continue;
         };
-
-        let mut text = match convert_rst {
-            Convert::Converted(s) => s,
-            Convert::Raw(_) => {
-                info!("no chinese punct");
-                continue;
-            }
-        };
-        text = text
-            .replace("\0\0", " ")
-            .replace("\0\n", "\n")
-            .trim_end_matches(|ch| ch == '\0')
-            .replace("\0", " ");
 
         let Ok(()) = ctx.set_text(text.clone()) else {
             warn!("failed to set clipboard text");
@@ -122,5 +140,127 @@ fn main() {
             .close_button("关闭")
             .send()
             .unwrap();
+    }
+}
+
+fn convert_str(input: &str) -> Option<String> {
+    let convert_rst = input.chars().map(convert).reduce(|a, b| {
+        use Convert::*;
+        match (a, b) {
+            (Raw(mut a), Raw(b)) => {
+                a.push_str(b.as_str());
+                Raw(a)
+            }
+            (Converted(mut a), Raw(b)) => {
+                a.push_str(b.as_str());
+                Converted(a)
+            }
+            (Raw(mut a), Converted(b)) => {
+                a.push_str(b.as_str());
+                Converted(a)
+            }
+            (Converted(mut a), Converted(b)) => {
+                a.push_str(b.as_str());
+                Converted(a)
+            }
+        }
+    })?;
+
+    match convert_rst {
+        Convert::Converted(mut s) => {
+            s = s
+                .replace("\0\0", " ")
+                .replace("\0\n", "\n")
+                .trim_end_matches('\0')
+                .replace("\0", " ");
+            Some(s)
+        }
+        Convert::Raw(_) => None,
+    }
+}
+
+fn convert_html_string(input: &str) -> Option<String> {
+    let mut reader = input.as_bytes();
+    let dom = parse_document(RcDom::default(), Default::default())
+        .from_utf8()
+        .read_from(&mut reader)
+        .ok()?;
+
+    fn walk(handle: Handle, changed: &mut bool) {
+        let node = handle;
+        if let NodeData::Text { contents } = &node.data {
+            let mut borrow = contents.borrow_mut();
+            if let Some(new_text) = convert_str(&borrow) {
+                *borrow = new_text.into();
+                *changed = true;
+            }
+        }
+        let children = node.children.borrow().clone();
+        for child in children {
+            walk(child, changed);
+        }
+    }
+
+    let mut changed = false;
+    walk(dom.document.clone(), &mut changed);
+    if !changed {
+        return None;
+    }
+    let mut out = Vec::new();
+    let handle = markup5ever_rcdom::SerializableHandle::from(dom.document.clone());
+    serialize(&mut out, &handle, Default::default()).ok()?;
+    String::from_utf8(out).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_convert_str_basic() {
+        let input = "你好，世界！“Rust” （2024）";
+        let out = convert_str(input).expect("should convert");
+        assert!(!out.contains('，'));
+        assert!(!out.contains('！'));
+        assert!(!out.contains('“'));
+        assert!(!out.contains('”'));
+        assert!(!out.contains('（'));
+        assert!(!out.contains('）'));
+    }
+
+    #[test]
+    fn test_convert_html_preserve_tags() {
+        let input = r#"
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>示例</title>
+</head>
+<body>
+    <p>你好，<strong>“Rust”</strong>（2024）！</p>
+</body>
+</html>
+        "#;
+        let out = convert_html_string(input).expect("should convert html");
+        assert!(out.contains("<strong>"));
+        assert!(!out.contains('，'));
+        assert!(!out.contains('！'));
+        assert!(!out.contains('“'));
+        assert!(!out.contains('”'));
+        assert!(!out.contains('（'));
+        assert!(!out.contains('）'));
+        assert_eq!(
+            out.trim(),
+            r#"<!DOCTYPE html><html lang="zh-CN"><head>
+    <meta charset="UTF-8">
+    <title>示例</title>
+</head>
+<body>
+    <p>你好,<strong> "Rust"</strong> (2024) !</p>
+
+
+        </body></html>"#
+        );
     }
 }
