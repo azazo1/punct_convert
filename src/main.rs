@@ -72,6 +72,16 @@ fn main() {
             };
             last_html = Some(converted_html.clone());
 
+            if let Ok(text_plain) = ctx.get_text()
+                && let Some(converted_text) = convert_str(text_plain.as_str())
+            {
+                if ctx.set_text(converted_text.clone()).is_ok() {
+                    last_text = Some(converted_text);
+                } else {
+                    warn!("failed to set clipboard text");
+                }
+            }
+
             let mut notification = Notification::new();
             let mut icon_file = NamedTempFile::new();
             match &mut icon_file {
