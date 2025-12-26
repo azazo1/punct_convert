@@ -1,6 +1,6 @@
 use std::{io::Write, thread, time::Duration};
 
-use clipboard_rs::{Clipboard, ContentFormat};
+use clipboard_rs::{Clipboard, ClipboardContent, ContentFormat};
 use html5ever::{parse_document, serialize, tendril::TendrilSink};
 use mac_notification_sys::Notification;
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
@@ -62,24 +62,31 @@ fn main() {
 
             info!("get clipboard(html)");
 
-            let Some(converted_html) = convert_html_string(html.as_str()) else {
-                last_html = Some(html);
-                continue;
-            };
-            let Ok(()) = ctx.set_html(converted_html.clone()) else {
-                warn!("failed to set clipboard html");
-                continue;
-            };
-            last_html = Some(converted_html.clone());
+            let mut new_clipboard_content = Vec::new();
 
-            if let Ok(text_plain) = ctx.get_text()
-                && let Some(converted_text) = convert_str(text_plain.as_str())
-            {
-                if ctx.set_text(converted_text.clone()).is_ok() {
+            if let Ok(text_plain) = ctx.get_text() {
+                info!("get clipboard(text) at the same time.");
+                if let Some(converted_text) = convert_str(text_plain.as_str()) {
+                    new_clipboard_content.push(ClipboardContent::Text(converted_text.clone()));
                     last_text = Some(converted_text);
-                } else {
-                    warn!("failed to set clipboard text");
+                    info!("clipboard text converted.");
                 }
+            }
+
+            if let Some(converted_html) = convert_html_string(html.as_str()) {
+                new_clipboard_content.push(ClipboardContent::Html(converted_html.clone()));
+                last_html = Some(converted_html);
+                info!("clipboard html converted.");
+            } else {
+                last_html = Some(html);
+            };
+
+            if new_clipboard_content.is_empty() {
+                continue;
+            }
+            if let Err(e) = ctx.set(new_clipboard_content) {
+                warn!("failed to set clipboard: {e}");
+                continue;
             }
 
             let mut notification = Notification::new();
