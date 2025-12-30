@@ -54,12 +54,13 @@ fn main() {
     let mut last_text: Option<String> = None;
     let mut last_html: Option<String> = None;
     let mut first_shot = true;
-    loop {
+
+    for _ in std::iter::repeat_n((), 2).chain(std::iter::repeat_with(|| {
+        thread::sleep(Duration::from_secs_f32(0.5));
+    })) {
         if args.oneshot && !first_shot {
             break;
         }
-
-        thread::sleep(Duration::from_secs_f32(0.5));
         let ctx = clipboard_rs::ClipboardContext::new().unwrap();
         first_shot = false;
 
