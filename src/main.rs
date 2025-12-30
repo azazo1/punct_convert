@@ -24,25 +24,54 @@ enum Convert {
 
 fn convert(ch: char) -> Convert {
     use Convert::*;
+    // 最后收集的时候, 两个及以上零字符则消除, 单个零字符变成空格.
     match ch {
-        '》' => Converted(">\0".into()),
-        '《' => Converted("\0<".into()),
-        '：' => Converted(":\0".into()),
-        '；' => Converted(";\0".into()),
-        '“' => Converted("\0\"".into()),
-        '”' => Converted("\"\0".into()),
-        '！' => Converted("!\0".into()),
-        '…' => Converted("...".into()),
-        '（' => Converted("\0(".into()),
-        '）' => Converted(")\0".into()),
-        '【' => Converted("\0[".into()),
-        '】' => Converted("]\0".into()),
-        '、' => Converted(",\0".into()),
-        '。' => Converted(".\0".into()),
-        '，' => Converted(",\0".into()),
-        '？' => Converted("?\0".into()),
+        '》' => Converted("\0\0>\0".into()),
+        '《' => Converted("\0<\0\0".into()),
+        '：' => Converted("\0\0:\0".into()),
+        '；' => Converted("\0\0;\0".into()),
+        '“' => Converted("\0\"\0\0".into()),
+        '”' => Converted("\0\0\"\0".into()),
+        '！' => Converted("\0\0!\0".into()),
+        '…' => Converted("\0\0...\0\0".into()),
+        '（' => Converted("\0(\0\0".into()),
+        '）' => Converted("\0\0)\0".into()),
+        '【' => Converted("\0[\0\0".into()),
+        '】' => Converted("\0\0]\0".into()),
+        '、' => Converted("\0\0,\0".into()),
+        '。' => Converted("\0\0.\0".into()),
+        '，' => Converted("\0\0,\0".into()),
+        '？' => Converted("\0\0?\0".into()),
         _ => Raw(ch.into()),
     }
+}
+
+fn merge_chars(s: &str) -> String {
+    let chars: Vec<_> = s.chars().collect();
+    let mut rst = String::with_capacity(s.len());
+    let mut i = 0;
+    let mut prev_is_whitespace = false;
+    while i < chars.len() {
+        let mut zero_cnt = 0;
+        while i < chars.len() && chars[i] == '\0' {
+            zero_cnt += 1;
+            i += 1;
+        }
+        if zero_cnt == 0 {
+            rst.push(chars[i]);
+            prev_is_whitespace = chars[i].is_whitespace();
+            i += 1;
+        } else if zero_cnt == 1
+            && !prev_is_whitespace
+            && i < chars.len()
+            && !chars[i].is_whitespace()
+        {
+            // 如果 \0 前面是空白符, 或者后面是空白符/末尾, 那么不添加空格.
+            rst.push(' ');
+            prev_is_whitespace = true;
+        }
+    }
+    rst
 }
 
 fn main() {
@@ -201,11 +230,7 @@ fn convert_str(input: &str) -> Option<String> {
 
     match convert_rst {
         Convert::Converted(mut s) => {
-            s = s
-                .replace("\0\0", " ")
-                .replace("\0\n", "\n")
-                .trim_end_matches('\0')
-                .replace("\0", " ");
+            s = merge_chars(&s);
             Some(s)
         }
         Convert::Raw(_) => None,
@@ -248,10 +273,11 @@ fn convert_html_string(input: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_convert_str_basic() {
-        let input = "你好，世界！“Rust” （2024）";
+        let input = "你好，世界！“Rust” （2024）。“Rust”（2024）";
         let out = convert_str(input).expect("should convert");
         assert!(!out.contains('，'));
         assert!(!out.contains('！'));
@@ -259,6 +285,7 @@ mod tests {
         assert!(!out.contains('”'));
         assert!(!out.contains('（'));
         assert!(!out.contains('）'));
+        assert_eq!(out, r#"你好, 世界!"Rust" (2024)."Rust"(2024)"#);
     }
 
     #[test]
@@ -290,7 +317,7 @@ mod tests {
     <title>示例</title>
 </head>
 <body>
-    <p>你好,<strong> "Rust"</strong> (2024) !</p>
+    <p>你好,<strong> "Rust"</strong> (2024)!</p>
 
 
         </body></html>"#
