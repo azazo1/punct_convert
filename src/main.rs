@@ -1,5 +1,6 @@
 use std::{io::Write, thread, time::Duration};
 
+use clap::Parser;
 use clipboard_rs::{Clipboard, ClipboardContent, ContentFormat};
 use html5ever::{parse_document, serialize, tendril::TendrilSink};
 use mac_notification_sys::Notification;
@@ -8,6 +9,13 @@ use tempfile::NamedTempFile;
 use tracing::{info, warn};
 
 const ICON_BYTES: &[u8] = include_bytes!("../res/clipboard.png");
+
+#[derive(Parser)]
+#[command(author, about, version, long_about = None)]
+struct AppArgs {
+    #[clap(short, long, help = "convert current clipboard and quit.")]
+    oneshot: bool,
+}
 
 enum Convert {
     Converted(String),
@@ -42,11 +50,18 @@ fn main() {
         .with_max_level(tracing::Level::INFO)
         .init();
 
+    let args = AppArgs::parse();
     let mut last_text: Option<String> = None;
     let mut last_html: Option<String> = None;
+    let mut first_shot = true;
     loop {
+        if args.oneshot && !first_shot {
+            break;
+        }
+
         thread::sleep(Duration::from_secs_f32(0.5));
         let ctx = clipboard_rs::ClipboardContext::new().unwrap();
+        first_shot = false;
 
         if ctx.has(ContentFormat::Html) {
             let Ok(html) = ctx.get_html() else {

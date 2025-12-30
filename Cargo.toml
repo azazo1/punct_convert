@@ -2,8 +2,10 @@
 edition = "2024"
 name = "punct_convert"
 version = "0.1.0"
+authors = ["azazo1 <azazo1@qq.com>"]
 
 [dependencies]
+clap = { version = "4.5.53", features = ["derive"] }
 clipboard-rs = "0.3.0"
 html5ever = "0.36.1"
 mac-notification-sys = "0.6.6"
