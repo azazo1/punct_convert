@@ -4,14 +4,10 @@ use colored::{ColoredString, Colorize};
 
 #[derive(Clone, Copy)]
 pub(super) struct DryRunTheme {
-    enabled: bool,
+    pub(super) enabled: bool,
 }
 
 impl DryRunTheme {
-    pub(super) fn plain() -> Self {
-        Self { enabled: false }
-    }
-
     pub(super) fn colored_stdout() -> Self {
         Self {
             enabled: std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none(),

@@ -1,8 +1,6 @@
 use arborium::{AnsiHighlighter, theme::builtin};
 use markup_fmt::{Language, config::FormatOptions, format_text};
 
-use crate::convert::{convert_html_string, convert_str};
-
 use super::{ansi_state::AnsiSgrState, theme::DryRunTheme};
 
 fn format_html_for_display(input: &str) -> String {
@@ -154,11 +152,13 @@ pub(super) fn render_dry_run_entry_with_theme(
 
 #[cfg(test)]
 mod tests {
+    use crate::convert::{convert_html_string, convert_str};
+
     use super::*;
     use pretty_assertions::assert_eq;
 
     fn render_dry_run_entry(label: &str, original: &str, converted: Option<&str>) -> String {
-        render_dry_run_entry_with_theme(label, original, converted, DryRunTheme::plain())
+        render_dry_run_entry_with_theme(label, original, converted, DryRunTheme { enabled: false })
     }
 
     #[test]
@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn test_highlight_spaces_for_display_plain_theme_keeps_spaces() {
-        let out = highlight_spaces_for_display("a b", DryRunTheme::plain());
+        let out = highlight_spaces_for_display("a b", DryRunTheme { enabled: false });
         assert_eq!(out, "a b");
     }
 

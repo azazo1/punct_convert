@@ -31,10 +31,10 @@ pub fn run(args: AppArgs) {
         let ctx = clipboard_rs::ClipboardContext::new().unwrap();
         first_shot = false;
 
-        if ctx.has(ContentFormat::Html) {
-            if handle_html_clipboard(&ctx, &mut last_text, &mut last_html) {
-                continue;
-            }
+        if ctx.has(ContentFormat::Html)
+            && handle_html_clipboard(&ctx, &mut last_text, &mut last_html)
+        {
+            continue;
         }
 
         handle_text_clipboard(&ctx, &mut last_text);
