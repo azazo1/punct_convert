@@ -49,38 +49,49 @@ fn handle_html_clipboard(
     let Ok(html) = ctx.get_html() else {
         return false;
     };
-    if last_html
-        .as_ref()
-        .map(|h| h.as_str() == html.as_str())
-        .unwrap_or(false)
-    {
+    let text_plain = ctx.get_text().ok();
+    if last_html.as_deref() == Some(html.as_str()) && last_text.as_deref() == text_plain.as_deref() {
         return true;
     }
 
     info!("get clipboard(html)");
 
-    let mut new_clipboard_content = Vec::new();
-
-    if let Ok(text_plain) = ctx.get_text() {
+    let converted_text = text_plain.as_deref().and_then(|text| {
         info!("get clipboard(text) at the same time.");
-        if let Some(converted_text) = convert_str(text_plain.as_str()) {
-            new_clipboard_content.push(ClipboardContent::Text(converted_text.clone()));
-            *last_text = Some(converted_text);
+        let converted = convert_str(text);
+        if converted.is_some() {
             info!("clipboard text converted.");
         }
+        converted
+    });
+    let converted_html = convert_html_string(html.as_str());
+
+    if converted_text.is_none() && converted_html.is_none() {
+        *last_text = text_plain;
+        *last_html = Some(html);
+        return true;
     }
 
-    if let Some(converted_html) = convert_html_string(html.as_str()) {
+    let mut new_clipboard_content = Vec::new();
+
+    if let Some(text) = converted_text.or(text_plain) {
+        new_clipboard_content.push(ClipboardContent::Text(text.clone()));
+        *last_text = Some(text);
+    } else {
+        *last_text = None;
+    }
+
+    if let Some(converted_html) = converted_html {
         new_clipboard_content.push(ClipboardContent::Html(converted_html.clone()));
         *last_html = Some(converted_html);
         info!("clipboard html converted.");
     } else {
+        new_clipboard_content.push(ClipboardContent::Html(html.clone()));
         *last_html = Some(html);
     }
 
-    if new_clipboard_content.is_empty() {
-        return true;
-    }
+    append_passthrough_clipboard_content(ctx, &mut new_clipboard_content);
+
     if let Err(e) = ctx.set(new_clipboard_content) {
         warn!("failed to set clipboard: {e}");
         return true;
@@ -111,10 +122,32 @@ fn handle_text_clipboard(ctx: &clipboard_rs::ClipboardContext, last_text: &mut O
         return;
     };
 
-    let Ok(()) = ctx.set_text(text.clone()) else {
+    let mut new_clipboard_content = vec![ClipboardContent::Text(text.clone())];
+    append_passthrough_clipboard_content(ctx, &mut new_clipboard_content);
+
+    let Ok(()) = ctx.set(new_clipboard_content) else {
         warn!("failed to set clipboard text");
         return;
     };
 
+    *last_text = Some(text);
+
     send_conversion_notification(false);
+}
+
+fn append_passthrough_clipboard_content(
+    ctx: &clipboard_rs::ClipboardContext,
+    new_clipboard_content: &mut Vec<ClipboardContent>,
+) {
+    if ctx.has(ContentFormat::Rtf)
+        && let Ok(rtf) = ctx.get_rich_text()
+    {
+        new_clipboard_content.push(ClipboardContent::Rtf(rtf));
+    }
+
+    if ctx.has(ContentFormat::Files)
+        && let Ok(files) = ctx.get_files()
+    {
+        new_clipboard_content.push(ClipboardContent::Files(files));
+    }
 }
